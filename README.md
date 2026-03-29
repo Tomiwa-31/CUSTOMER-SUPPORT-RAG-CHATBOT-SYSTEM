@@ -87,9 +87,15 @@ http://localhost:8080/docs
 after that create Dockerfile and .dockerignore 
 open docker desktop or ensure its running(docker --version)
 build docker image
+docker build -t novabuy-support .
 
 Step 1 — Test the image locally first:
 docker run -p 8080:8080 --env-file .env novabuy-support
+or docker run -p 8080:8080 `
+  -e GROQ_API_KEY=your_key `
+  novabuy-support
+http://localhost:8080/docs
+
 
 ```
 ✅ Docker image built
@@ -101,7 +107,27 @@ docker run -p 8080:8080 --env-file .env novabuy-support
 ⬜ Deploy to Cloud Run
 ⬜ Move secrets to Secret Manager
 
+Cloud Monitoring
+Check weekly:
+├── Request latency p99  → under 3000ms? ✅
+├── Memory p99           → under 80%? ✅
+├── CPU p99              → under 80%? ✅
+└── Request count 2xx    → no spike in 4xx? ✅
 
+Cold start:
+        ↓
+Pull image from Artifact Registry  (~2-3s)
+        ↓
+Start the container                (~1s)
+        ↓
+Run CMD ["uvicorn", "app:app"...]  
+        ↓
+Python starts                      (~1s)
+sentence-transformers loads        (~3-5s)
+ChromaDB loads from disk           (~1-2s)
+RAG chain builds                   (~1-2s)
+        ↓
+Ready to serve requests ✅         (~10-15s total)
 
 
 
@@ -121,3 +147,5 @@ Firestore integration          ← systems engineering
 Vertex AI ADK                  ← multi-agent
 GKE Autopilot                  ← systems engineering
 Multi-agent routing            ← multi-agent
+
+

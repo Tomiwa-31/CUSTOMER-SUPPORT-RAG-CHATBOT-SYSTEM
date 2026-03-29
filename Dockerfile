@@ -1,4 +1,4 @@
-FROM python:3.14-slim
+FROM python:3.11-slim
 
 WORKDIR /app
 
@@ -27,7 +27,12 @@ RUN uv pip install --system --no-cache \
     langchain-text-splitters \
     rank-bm25 \
     sentence-transformers \
-    python-dotenv
+    python-dotenv \
+    google-cloud-firestore \
+    google-cloud-trace \
+    opentelemetry-sdk \
+    opentelemetry-exporter-gcp-trace \
+    opentelemetry-api
 
 ENV PORT=8080
 ENV PYTHONUNBUFFERED=1

@@ -143,7 +143,7 @@ def run_with_memory(
     })
  
     # 3 — append the new turn
-    chat_history.append(HumanMessage(content=question))
+    chat_history.append(HumanMessage(content=question))#set this so llm knows which is human vs ai messages
     chat_history.append(AIMessage(content=response))
  
     # 4 — trim before saving so Firestore doc doesn't grow forever

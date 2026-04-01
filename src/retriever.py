@@ -39,6 +39,7 @@ def load_vectorstore(embedding_model):
             f"Run ingestion first: python -m src.ingestion"
         )
 
+    #load the vectorstore for the specific collection with its embedding model
     vectorstore = Chroma(
         persist_directory=CHROMA_DIR,
         embedding_function=embedding_model,

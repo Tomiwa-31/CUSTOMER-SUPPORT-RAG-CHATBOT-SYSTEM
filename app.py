@@ -1,5 +1,6 @@
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
+from src.orchestrator import build_orchestrator   
 from contextlib import asynccontextmanager
 from src.chain import build_rag_chain, run_with_memory  # ── L4: trim_history removed, run_with_memory added
 from src.logger import RequestLogger
@@ -12,8 +13,8 @@ state = {}
  
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    print('{"event": "startup", "status": "building_chain"}')
-    state["chain"] = build_rag_chain()  
+    print('{"event": "startup", "status": "building_orchestrator"}')
+    state["chain"] = build_orchestrator()
     print('{"event": "startup", "status": "ready"}')
     yield
     state.clear()

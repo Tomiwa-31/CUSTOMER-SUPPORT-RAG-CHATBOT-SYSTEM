@@ -1,10 +1,14 @@
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
+from src.evaluator import evaluate_response
+from src.orchestrator import Orchestrator
 from src.orchestrator import build_orchestrator   
 from contextlib import asynccontextmanager
-from src.chain import build_rag_chain, run_with_memory  # ── L4: trim_history removed, run_with_memory added
+from src.chain import run_with_memory  # ── L4: trim_history removed, run_with_memory added
 from src.logger import RequestLogger
 from src.config import MAX_HISTORY_LENGTH
+from src.config import USE_LLM_JUDGE
+from src.escalation import handle_escalation
 import tracer
  
 
@@ -37,6 +41,10 @@ class ChatResponse(BaseModel):
     answer: str
     invocation_id: str
     latency_ms: int
+    confidence_score: float = 1.0    
+    escalated: bool = False           
+    ticket_id: str = None             
+    agent_type: str = "general"   
  
  
 
@@ -76,14 +84,43 @@ def chat(request: ChatRequest):
                 answer_length=len(response),
                 latency_ms=logger.latency_ms()
             )
- 
-            return ChatResponse(
-                session_id=request.session_id,
-                question=request.question,
-                answer=response,
-                invocation_id=logger.invocation_id,
-                latency_ms=logger.latency_ms()
+
+            eval_result = evaluate_response(
+                question=request.question, 
+                context="",
+                answer=response,    
             )
+            if eval_result["should_escalate"]:
+                escalation = handle_escalation(
+                    session_id=request.session_id,       
+                    question=request.question,           
+                    answer=response,                     
+                    escalation_reason=eval_result["escalation_reason"],  
+                    agent_type=orchestrator.last_category,  
+                    confidence_score=eval_result["confidence_score"],    
+                    llm_judge_scores=eval_result["llm_judge_scores"],    
+                    logger=logger,                       
+                )
+ 
+                return ChatResponse(
+                    session_id=request.session_id,
+                    question=request.question,
+                    answer=response,
+                    invocation_id=logger.invocation_id,
+                    latency_ms=logger.latency_ms(),
+                    confidence_score=eval_result["confidence_score"],
+                    escalated=True,
+                    ticket_id=escalation["ticket_id"],
+                    agent_type=orchestrator.last_category,
+                    )
+            
+            return ChatResponse(
+                    session_id=request.session_id,
+                    question=request.question,
+                    answer=response,
+                    invocation_id=logger.invocation_id,
+                    latency_ms=logger.latency_ms()
+                )
  
         except Exception as e:
             logger.error("request_failed",

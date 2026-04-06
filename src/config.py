@@ -113,6 +113,10 @@ Context:
 
 """
 
+# ── Evaluator ──────────────────────────────────────────
+RETRIEVAL_CONFIDENCE_THRESHOLD = 0.5
+LLM_JUDGE_THRESHOLD = 3.0
+USE_LLM_JUDGE = True
 
 ### What `ENSEMBLE_WEIGHTS = [0.5, 0.5]` means:
 

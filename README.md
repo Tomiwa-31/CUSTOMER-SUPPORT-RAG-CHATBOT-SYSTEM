@@ -1,151 +1,304 @@
-# 1. Create and enter your project folder
-mkdir rag-pipeline && cd rag-pipeline
+# NovaBuy Customer Support RAG System
 
-# 2. Initialize — this creates pyproject.toml automatically
-uv init
+> An enterprise-grade, multi-agent AI customer support system built with LangChain, Groq, ChromaDB, and Google Cloud Platform — progressing from a local prototype to a production-deployed multi-agent platform across 5 maturity levels.
 
-# 3. Create your virtual environment
-uv venv myvenv
+---
 
-# 4. Activate it
-source .venv/bin/activate        # Mac/Linux
-.venv\Scripts\activate           # Windows
+## Table of Contents
 
-# 5. Add dependencies (uv updates pyproject.toml for you)
-uv add langchain chromadb faiss-cpu
-uv add langchain-groq python-dotenv langgraph
-# 6. Open in VS Code
-code .
+- [Project Goals](#project-goals)
+- [What The Project Solves](#what-the-project-solves)
+- [Challenges Faced](#challenges-faced)
+- [Key Features](#key-features)
+- [System Workflow](#system-workflow)
+- [Tech Stack](#tech-stack)
+- [Architecture Maturity Levels](#architecture-maturity-levels)
+- [Setup Instructions](#setup-instructions)
+- [API Reference](#api-reference)
+- [Project Structure](#project-structure)
+
+---
+
+## Project Goals
+
+The primary goals of this project were to:
+
+1. Build a production-grade Retrieval Augmented Generation (RAG) system that answers customer support questions grounded in actual company policy documents — eliminating hallucinations
+2. Demonstrate progressive system engineering maturity from a local notebook prototype (L1) to a fully deployed, observable, multi-agent platform on GCP (L5)
+3. Develop practical skills in AI systems engineering, DevOps, cloud infrastructure, and multi-agent orchestration
+4. Produce a portfolio piece that maps directly to enterprise AI engineering responsibilities
+
+---
+
+## What The Project Solves
+
+Traditional LLM-powered chatbots have two critical production problems:
+
+**Problem 1 — Hallucination:**
+```
+User: "How long do I have to return an item?"
+Generic LLM: "You have 60 days to return any item." ← fabricated, wrong
+NovaBuy RAG: "You have 30 days from delivery for unopened items,
+              14 days for opened items, and 60 days for defective items." ← grounded in policy
+```
+
+**Problem 2 — No escalation path:**
+```
+Generic LLM: Confidently gives wrong answers with no fallback
+NovaBuy RAG: Detects low confidence → creates Firestore ticket → 
+             routes to human agent with full context
+```
+
+**What we built instead:**
+- Every answer is grounded in retrieved policy documents — the LLM cannot fabricate
+- Confidence scoring detects when retrieval quality is too low
+- LLM-as-judge scores answer quality after generation
+- Automatic escalation to human agents when quality thresholds are not met
+- Persistent conversation memory per user across sessions
+
+---
+
+## Challenges Faced
+
+### 1. Semantic Gap in Retrieval
+**Problem:** Casual user queries like *"how long do i have 2 return somthing"* failed to match formal policy document language, causing the system to return irrelevant chunks.
+
+**Solution:** Built a query rewriting layer using Groq that reformulates casual queries into formal policy language before retrieval.
+
+### 2. Single Retrieval Method Was Insufficient
+**Problem:** Pure semantic (vector) search missed exact keyword matches like "RMA number" while pure keyword search missed conceptual queries like "send something back."
+
+**Solution:** Implemented hybrid retrieval combining BM25 keyword search and ChromaDB semantic search via LangChain's `EnsembleRetriever` with configurable weights.
 
 
+### 3. Cold Start Latency
+**Problem:** Cloud Run cold starts took 10–15 seconds due to loading sentence-transformers, ChromaDB, and building the RAG chain at startup.
 
-L2
-``
-User query
-    ↓
-├── ChromaDB retriever  (semantic)  → top 5 chunks
-├── BM25 retriever      (keyword)   → top 5 chunks
-└── EnsembleRetriever combines and reranks both results
-    ↓
+**Solution:** Pre-embedded vectors are baked into the Docker image (no re-embedding on cold start). The `--timeout 300` flag prevents false deployment failures from gcloud CLI timing out before the container finishes starting.
 
-create a rewriter.py file
-test it : python -m src.rewriter
+---
 
-BM25Retriever contains:
-├── all chunk texts        (the raw words)
-├── word frequency table   (how often each word appears in each chunk)
-└── k = 5                  (how many chunks to return at query time)
+## Key Features
 
-modifying retriever.py file by adding  ensemble method
-python -m src.retriever
-python -m src.chain
+### Retrieval
+- **Hybrid BM25 + Semantic Search** — `EnsembleRetriever` combines keyword and vector search with configurable weights
+- **Query Rewriting** — Groq LLM reformulates casual/misspelled queries before retrieval
+- **Structure-Aware Chunking** — `MarkdownHeaderTextSplitter` preserves `##` section context in every chunk
+
+### Multi-Agent System
+- **Triage Router** — LLM-powered ticket classifier routes to billing, technical, account, or general agent
+- **Specialized Agents** — Each agent has its own ChromaDB collection, BM25 index, and domain-specific prompt personality
+- **Orchestrator** — Drop-in chain replacement with `.invoke()` interface for seamless integration with memory
+
+### Quality & Reliability
+- **Confidence Scoring** — Retrieval similarity scores flag low-confidence retrievals
+- **LLM-as-Judge** — Second Groq call scores grounding, relevance, and completeness (1–5)
+- **Fallback Detection** — Pattern matching detects "I don't know" responses before they reach users
+- **Automatic Escalation** — Creates structured Firestore tickets with priority levels when quality thresholds are not met
+
+### Memory
+- **Firestore Persistent Memory** — Conversation history survives container restarts and scales across multiple Cloud Run instances
+- **Session Isolation** — Each `session_id` gets its own Firestore document
+- **History Trimming** — `MAX_HISTORY_LENGTH` prevents context window overflow
+
+### Observability
+- **Structured JSON Logging** — Every request logs `invocation_id`, `event`, `latency_ms`, `agent_type` as searchable Cloud Logging JSON
+- **Cloud Trace** — Span-level breakdown of `query_rewriting`, `hybrid_retrieval`, and `llm_call` timing
+- **Cloud Monitoring** — Request count, p50/p95/p99 latency, memory and CPU utilization dashboards
+- **Budget Alerts** — GCP spend alerts configured to prevent cost surprises
+
+### Security
+- **Secret Manager** — `GROQ_API_KEY` stored in GCP Secret Manager; never hardcoded or passed as environment variables in deploy commands
+- **IAM Service Accounts** — Cloud Run accesses Firestore and Cloud Trace via attached service account with least-privilege roles
+- **Zero Secrets in Image** — `.env` excluded from Docker image via `.dockerignore`
+
+---
+
+## System Workflow
+
+```
+User Request (POST /chat)
+         │
+         ▼
+   RequestLogger
+   (invocation_id, timestamp)
+         │
+         ▼
+  Load Session History
+   (Firestore → chat_history list)
+         │
+         ▼
+   Triage Router
+   (Groq LLM classifies: billing | technical | account | general)
+         │
+         ▼
+  Specialized Agent
+  ┌─────────────────────────────────────────┐
+  │  Query Rewriter (Groq)                  │
+  │         ↓                               │
+  │  Hybrid Retriever                       │
+  │  ├── BM25 (keyword search)              │
+  │  └── Pinecone (semantic search)         │
+  │         ↓                               │
+  │  EnsembleRetriever (0.5 / 0.5 weights)  │
+  │         ↓                               │
+  │  Groq LLM + Specialized Prompt          │
+  │         ↓                               │
+  │  Answer string                          │
+  └─────────────────────────────────────────┘
+         │
+         ▼
+   Evaluator
+   ├── Fallback detection (pattern match)
+   ├── Retrieval confidence score
+   └── LLM-as-judge (grounding, relevance, completeness)
+         │
+         ▼
+   Escalation decision?
+   ├── YES → Create Firestore ticket (TKT-XXXXXXXX)
+   │          Return friendly escalation message
+   └── NO  → Return answer
+         │
+         ▼
+   Save Session History
+   (append HumanMessage + AIMessage → Firestore)
+         │
+         ▼
+   Structured Log
+   (Cloud Logging: event, latency_ms, agent_type, confidence_score)
+         │
+         ▼
+   ChatResponse (JSON)
+   {session_id, question, answer, invocation_id,
+    latency_ms, confidence_score, escalated, ticket_id, agent_type}
+```
+
+---
+
+## Tech Stack
+
+### AI & Retrieval
+| Component | Technology |
+|---|---|
+| LLM | Groq `llama-3.3-70b-versatile` |
+| Embeddings | HuggingFace `all-MiniLM-L6-v2` (local, CPU) |
+| Vector store | Pinecone (managed cloud) |
+| Keyword search | BM25 via `rank-bm25` |
+| Hybrid retrieval | LangChain `EnsembleRetriever` |
+| Agent framework | LangChain |
+| Query rewriting | Groq LLM chain |
+| LLM-as-judge | Groq LLM chain |
+| GCS (BM25 pickle storage)  | PostgreSQL (DB source) |
 
 
-L3
-Skip for now ❌
-├── Hallucination detection
-├── Ground truth evals
-└── Confidence scoring
+### Backend & API
+| Component | Technology |
+|---|---|
+| REST API | FastAPI |
+| ASGI server | Uvicorn |
+| Request validation | Pydantic |
+| Conversation memory | Firestore (Google Cloud) |
+| Escalation tickets | Firestore (Google Cloud) |
 
-Do now ✅
-├── Dockerfile
-├── Deploy to Cloud Run
-├── Secret Manager
-└── Cloud Logging (basic)
+### Infrastructure & DevOps
+| Component | Technology |
+|---|---|
+| Containerization | Docker (CPU-only torch) |
+| Image registry | GCP Artifact Registry |
+| Build pipeline | GCP Cloud Build |
+| Hosting | GCP Cloud Run (serverless) |
+| Secret management | GCP Secret Manager |
+| Structured logging | GCP Cloud Logging |
+| Distributed tracing | GCP Cloud Trace + OpenTelemetry |
+| Monitoring | GCP Cloud Monitoring |
 
-create a looger .py file
-update chain.py with log
+### Python Tooling
+| Component | Technology |
+|---|---|
+| Package manager | `uv` |
+| Environment | Python 3.14 |
+| Config management | `python-dotenv` |
 
-what logs would look like on cloud run due to the structured logging(logger.py)
-{"timestamp": "2025-03-14T10:23:01Z", "invocation_id": "a3f9b2c1", "event": "request_started", "level": "INFO", "question": "how long do i have to return something"}
-{"timestamp": "2025-03-14T10:23:02Z", "invocation_id": "a3f9b2c1", "event": "query_rewritten", "level": "INFO", "original_query": "how long do i have to return something", "rewritten_query": "What is the return eligibility window?"}
-{"timestamp": "2025-03-14T10:23:02Z", "invocation_id": "a3f9b2c1", "event": "chunks_retrieved", "level": "INFO", "chunk_count": 7, "sections": ["1. Return Eligibility Window", "Overview"]}
-{"timestamp": "2025-03-14T10:23:03Z", "invocation_id": "a3f9b2c1", "event": "request_completed", "level": "INFO", "answer_length": 142, "latency_ms": 1823}
+---
 
-app.py
-@asynccontextmanager:gives the function the ability to pause and resume
+## Architecture Maturity Levels
 
-uv add fastapi uvicorn
+```
+L1 — Local Prototype ✅
+     Basic RAG pipeline · Pinecone · Groq · Local terminal
 
+L2 — Smart Retrieval ✅
+     Query rewriting · Hybrid BM25 + semantic · Conversation history
 
-Test it locally before Docker:
-uvicorn app:app --reload --port 8080
+L3 — Production Deployment ✅
+     FastAPI REST API · Docker · Cloud Run · Secret Manager
+     Structured logging · Cloud Monitoring · Budget alerts
 
+L4 — Memory & Personalization ✅
+     Firestore persistent memory · Cloud Trace instrumentation
+     Sessions survive container restarts and scale across instances
+
+L5 — Multi-Agent Platform ✅
+     Triage router · Billing / Technical / Account specialized agents
+     LLM-as-judge eval · Automatic escalation · Firestore tickets
+```
+
+---
+
+## Setup Instructions
+
+### Prerequisites
+- Python 3.11+
+- `uv` package manager (`pip install uv`)
+- Docker Desktop
+- GCP account with billing enabled
+- Groq API key (free at `console.groq.com`)
+
+---
+
+### Local Development
+
+**1. Clone the repository:**
+```bash
+git clone https://github.com/Tomiwa-31/CUSTOMER-SUPPORT-RAG-CHATBOT-SYSTEM
+.git
+cd CUSTOMER-SUPPORT-RAG-CHATBOT-SYSTEM
+
+```
+
+**2. Create virtual environment and install dependencies:**
+```bash
+uv venv
+.venv\Scripts\activate   # Windows
+source .venv/bin/activate # Mac/Linux
+uv sync
+```
+
+**3. Create `.env` file:**
+```bash
+GROQ_API_KEY=your_groq_api_key_here
+PINECONE_API_KEY=your_pinecone_api_key
+DATABASE_URL=your_databse_url
+GCS_BUCKET_NAME=your_gcs_bucket_name
+
+```
+
+**4. Run ingestion (first time only):**
+```bash
+python -m src.ingestion
+```
+Vectors goes to pinecone and BM25 pickles goes to GCS.
+
+**5. Run the API locally:**
+```bash
 uvicorn app:app --reload --port 8080
 ```
 
-This is actually the correct workflow going forward:
+**6. Test the API:**
 ```
-First time / after deleting:   python -m src.ingestion → uvicorn app:app
-Every restart after that:      uvicorn app:app  (loads existing chroma_db)
-
-uvicorn app:app --reload --port 8080
-
-test it with fast api auto-docs that has its own complete ui to test endpoint
 http://localhost:8080/docs
-
-after that create Dockerfile and .dockerignore 
-open docker desktop or ensure its running(docker --version)
-build docker image
-docker build -t novabuy-support .
-
-Step 1 — Test the image locally first:
-docker run -p 8080:8080 --env-file .env novabuy-support
-or docker run -p 8080:8080 `
-  -e GROQ_API_KEY=your_key `
-  novabuy-support
-http://localhost:8080/docs
-
-
 ```
-✅ Docker image built
-✅ Tested locally
 
-⬜ Create GCP project
-⬜ Enable Cloud Run API
-⬜ Push image to Artifact Registry
-⬜ Deploy to Cloud Run
-⬜ Move secrets to Secret Manager
-
-Cloud Monitoring
-Check weekly:
-├── Request latency p99  → under 3000ms? ✅
-├── Memory p99           → under 80%? ✅
-├── CPU p99              → under 80%? ✅
-└── Request count 2xx    → no spike in 4xx? ✅
-
-Cold start:
-        ↓
-Pull image from Artifact Registry  (~2-3s)
-        ↓
-Start the container                (~1s)
-        ↓
-Run CMD ["uvicorn", "app:app"...]  
-        ↓
-Python starts                      (~1s)
-sentence-transformers loads        (~3-5s)
-ChromaDB loads from disk           (~1-2s)
-RAG chain builds                   (~1-2s)
-        ↓
-Ready to serve requests ✅         (~10-15s total)
-
-
-
-
-
-
-
-
-
-
-OVERALL LEARNNG CURVE
-Docker + containerization      ← systems engineering
-Cloud Run deployment           ← systems engineering  
-Secret Manager                 ← systems engineering
-Cloud Logging + Monitoring     ← systems engineering
-Firestore integration          ← systems engineering
-Vertex AI ADK                  ← multi-agent
-GKE Autopilot                  ← systems engineering
-Multi-agent routing            ← multi-agent
+---
 
 

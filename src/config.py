@@ -11,23 +11,25 @@ CHROMA_DIR = "./chroma_db"
 
 
 # ── L5 CHANGE: three collections instead of one ───────
+PINECONE_INDEX_NAME = "novabuy-support-index"
 COLLECTION_NAME = "novabuy_support"          # kept for reference
-BILLING_COLLECTION = "billing_support"
-TECHNICAL_COLLECTION = "technical_support"
-ACCOUNT_COLLECTION = "account_support"
+BILLING_NAMESPACE = "billing_support"
+TECHNICAL_NAMESPACE = "technical_support"
+ACCOUNT_NAMESPACE = "account_support"
+DB_NAMESPACE        = "northwind_db"
 
 # ── L5 CHANGE: document to collection mapping ─────────
-COLLECTION_DOC_MAP = {
-    BILLING_COLLECTION: [
+NAMESPACE_DOC_MAP = {
+    BILLING_NAMESPACE: [
         "04_promotions_loyalty_program.md",
         "05_order_management_faq.md",
     ],
-    TECHNICAL_COLLECTION: [
+    TECHNICAL_NAMESPACE: [
         "03_product_faq.md",
         "06_damaged_wrong_item_troubleshooting.md",
         "02_shipping_delivery_policy.md",
     ],
-    ACCOUNT_COLLECTION: [
+    ACCOUNT_NAMESPACE: [
         "07_account_payments_security.md",
         "01_return_refund_policy.md",
     ],

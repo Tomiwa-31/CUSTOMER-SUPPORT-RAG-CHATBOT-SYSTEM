@@ -9,7 +9,9 @@ from src.logger import RequestLogger
 from src.config import MAX_HISTORY_LENGTH
 from src.config import USE_LLM_JUDGE
 from src.escalation import handle_escalation
-import tracer
+from google.cloud import run_v2
+from src.tracer import tracer
+import os
  
 
  
@@ -96,7 +98,7 @@ def chat(request: ChatRequest):
                     question=request.question,           
                     answer=response,                     
                     escalation_reason=eval_result["escalation_reason"],  
-                    agent_type=orchestrator.last_category,  
+                    agent_type=Orchestrator.last_category,  
                     confidence_score=eval_result["confidence_score"],    
                     llm_judge_scores=eval_result["llm_judge_scores"],    
                     logger=logger,                       
@@ -111,7 +113,7 @@ def chat(request: ChatRequest):
                     confidence_score=eval_result["confidence_score"],
                     escalated=True,
                     ticket_id=escalation["ticket_id"],
-                    agent_type=orchestrator.last_category,
+                    agent_type=Orchestrator.last_category,
                     )
             
             return ChatResponse(
@@ -129,6 +131,27 @@ def chat(request: ChatRequest):
                 latency_ms=logger.latency_ms()
             )
             raise HTTPException(status_code=500, detail=str(e))
+        
+
+@app.post('/trigger-ingestion')
+def trigger_ingestion():
+    """Endpoint for Cloud Scheduler to trigger the ingestion job"""
+
+    # Skip in local development
+    if os.getenv("ENVIRONMENT") == "local":
+        return {'status': 'error', 'message': 'Not available in local development'}, 400
+
+    try:
+        client = run_v2.JobsClient()
+        
+        request = run_v2.RunJobRequest(
+            name="projects/direct-analog-473209-q2/locations/us-central1/jobs/ingestion-job"
+        )
+        
+        operation = client.run_job(request=request)
+        return {'status': 'success', 'message': 'Ingestion job triggered'}, 200
+    except Exception as e:
+        return {'status': 'error', 'message': str(e)}, 500
  
  
 # ✅ FastAPI endpoint live

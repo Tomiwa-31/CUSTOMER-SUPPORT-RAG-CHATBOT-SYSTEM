@@ -24,7 +24,7 @@ class Orchestrator:
 
     def __init__(self):
         print("🔄 Building router...")
-        self.router = build_router()
+        self.router = build_router()#“Store the result of build_router() inside this object”
 
         print("🔄 Building billing agent...")
         self.billing_agent = build_billing_agent()
@@ -34,6 +34,9 @@ class Orchestrator:
 
         print("🔄 Building account agent...")
         self.account_agent = build_account_agent()
+
+    
+        self.last_category = None  # Track last category for logging and escalation
 
         print("🔄 Building general fallback agent...")
         self.general_agent = self._build_general_agent()
@@ -72,6 +75,7 @@ class Orchestrator:
 
         # ── Step 1: classify ──────────────────────────────
         category = classify_question(self.router, question)
+        self.last_category = category  # Store for later use in logging and escalation
 
         if logger:
             logger.info("router_classified",
@@ -88,7 +92,7 @@ class Orchestrator:
 
         if category == "billing":
             response = self.billing_agent.invoke(agent_inputs)
-
+ 
         elif category == "technical":
             response = self.technical_agent.invoke(agent_inputs)
 
@@ -117,3 +121,7 @@ class Orchestrator:
 def build_orchestrator() -> Orchestrator:
     """Factory function — called once at startup in app.py lifespan"""
     return Orchestrator()
+
+
+
+#so the flow is the app.py has run_with_memory() which  takes to the chain.py where the function exist then the chain.invoke now takes us back to orchestrator def invoke method

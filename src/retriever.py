@@ -53,7 +53,7 @@ def load_semantic_retriever(vectorstore):
     semantic_retriever = vectorstore.as_retriever(
         search_type=SEARCH_TYPE,
         search_kwargs={"k": SEMANTIC_TOP_K}
-    )
+    )#query.invoke is activated here to return top k relevant chunks
     print(f"✅ Semantic retriever ready — top {SEMANTIC_TOP_K} chunks")
     return semantic_retriever
 
@@ -111,17 +111,4 @@ if __name__ == "__main__":
             #print(f"  Chunk {i+1}: {doc.metadata.get('Header2', 'General')}")
 
 
-### What changed from L1:
-
-#Three retrievers now work together:
-
-#load_semantic_retriever()  →  ChromaDB (meaning)
-##load_bm25_retriever()      →  pickle file (keywords)
-#build_ensemble_retriever() →  combines both
-#The retriever is exactly like a search bar placed on top of it — it's the interface that:
-
-#Takes a question
-#Converts it to a vector
-#Goes into the vectorstore and finds the closest matching chunks
-#Returns the top K results
-
+#

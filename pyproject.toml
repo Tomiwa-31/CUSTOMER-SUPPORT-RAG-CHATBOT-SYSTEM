@@ -3,21 +3,25 @@ name = "customer-support-rag-chatbot-system"
 version = "0.1.0"
 description = "Add your description here"
 readme = "README.md"
-requires-python = ">=3.14"
+requires-python = ">=3.11,<3.13"
 dependencies = [
     "chromadb>=1.5.5",
     "faiss-cpu>=1.13.2",
     "fastapi>=0.135.1",
     "google-cloud-firestore>=2.25.0",
+    "google-cloud-run>=0.1.0",
+    "google-cloud-storage>=3.10.1",
     "ipykernel>=7.2.0",
     "langchain>=1.2.12",
     "langchain-chroma>=1.1.0",
     "langchain-community>=0.4.1",
     "langchain-groq>=1.1.2",
     "langchain-huggingface>=1.2.1",
+    "langchain-pinecone>=0.2.13",
     "langchain-text-splitters>=1.1.1",
     "opentelemetry-exporter-gcp-trace>=1.11.0",
     "opentelemetry-sdk>=1.40.0",
+    "pinecone>=7.3.0",
     "psycopg2-binary>=2.9.11",
     "rank-bm25>=0.2.2",
     "sentence-transformers>=5.2.3",

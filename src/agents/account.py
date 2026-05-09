@@ -1,7 +1,8 @@
 import pickle
 from pathlib import Path
 from langchain_huggingface import HuggingFaceEmbeddings
-from langchain_chroma import Chroma
+#from langchain_chroma import Chroma
+from langchain_pinecone import PineconeVectorStore
 from langchain_community.retrievers import BM25Retriever
 from langchain_classic.retrievers import EnsembleRetriever
 from langchain_groq import ChatGroq
@@ -10,7 +11,8 @@ from langchain_core.runnables import RunnablePassthrough, RunnableLambda
 from langchain_core.output_parsers import StrOutputParser
 from src.config import (
     CHROMA_DIR,
-    ACCOUNT_COLLECTION,
+    PINECONE_INDEX_NAME,
+    ACCOUNT_NAMESPACE,
     EMBEDDING_MODEL,
     EMBEDDING_DEVICE,
     NORMALIZE_EMBEDDINGS,
@@ -24,7 +26,7 @@ from src.config import (
     ACCOUNT_PROMPT,
 )
 from src.rewriter import build_query_rewriter
-from src.ingestion import get_bm25_path
+from src.ingestion import download_bm25_from_gcs, get_bm25_path
  
  
 def build_account_agent():
@@ -36,23 +38,21 @@ def build_account_agent():
         encode_kwargs={"normalize_embeddings": NORMALIZE_EMBEDDINGS}
     )
  
-    # ── ChromaDB retriever ─────────────────────────────
-    vectorstore = Chroma(
-        persist_directory=CHROMA_DIR,
-        embedding_function=embedding_model,
-        collection_name=ACCOUNT_COLLECTION
-    )
+    # ── Pinecone retriever ─────────────────────────────
+    vectorstore = PineconeVectorStore(
+    index_name=PINECONE_INDEX_NAME,
+    embedding=embedding_model,
+    namespace=ACCOUNT_NAMESPACE
+)
     semantic_retriever = vectorstore.as_retriever(
         search_type=SEARCH_TYPE,
         search_kwargs={"k": SEMANTIC_TOP_K}
     )
  
     # ── BM25 retriever ─────────────────────────────────
-    bm25_path = get_bm25_path(ACCOUNT_COLLECTION)
-    with open(bm25_path, "rb") as f:
-        bm25_retriever = pickle.load(f)
-    bm25_retriever.k = BM25_TOP_K
- 
+    
+    bm25_retriever   = download_bm25_from_gcs(ACCOUNT_NAMESPACE)
+
     # ── Ensemble retriever ─────────────────────────────
     retriever = EnsembleRetriever(
         retrievers=[bm25_retriever, semantic_retriever],
@@ -117,7 +117,7 @@ def build_account_agent():
         | StrOutputParser()
     )
  
-    print(f"✅ Account agent ready — collection: {ACCOUNT_COLLECTION}")
+    print(f"✅ Account agent ready — collection: {ACCOUNT_NAMESPACE}")
     return agent_chain
  
  

@@ -4,6 +4,7 @@ import pickle
 from pathlib import Path
 from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_chroma import Chroma
+from langchain_pinecone import PineconeVectorStore
 from langchain_community.retrievers import BM25Retriever
 from langchain_classic.retrievers import EnsembleRetriever
 from langchain_groq import ChatGroq
@@ -12,7 +13,8 @@ from langchain_core.runnables import RunnablePassthrough, RunnableLambda
 from langchain_core.output_parsers import StrOutputParser
 from src.config import (
     CHROMA_DIR,
-    BILLING_COLLECTION,
+    PINECONE_INDEX_NAME,
+    BILLING_NAMESPACE,
     EMBEDDING_MODEL,
     EMBEDDING_DEVICE,
     NORMALIZE_EMBEDDINGS,
@@ -26,7 +28,7 @@ from src.config import (
     BILLING_PROMPT,
 )
 from src.rewriter import build_query_rewriter
-from src.ingestion import get_bm25_path
+from src.ingestion import download_bm25_from_gcs, get_bm25_path
 
 
 def build_billing_agent():
@@ -39,21 +41,18 @@ def build_billing_agent():
     )
 
     # ── ChromaDB retriever ─────────────────────────────
-    vectorstore = Chroma(
-        persist_directory=CHROMA_DIR,
-        embedding_function=embedding_model,
-        collection_name=BILLING_COLLECTION
-    )
+    vectorstore = PineconeVectorStore(
+    index_name=PINECONE_INDEX_NAME,
+    embedding=embedding_model,
+    namespace=BILLING_NAMESPACE
+)
     semantic_retriever = vectorstore.as_retriever(
         search_type=SEARCH_TYPE,
         search_kwargs={"k": SEMANTIC_TOP_K}
     )
 
     # ── BM25 retriever ─────────────────────────────────
-    bm25_path = get_bm25_path(BILLING_COLLECTION)
-    with open(bm25_path, "rb") as f:
-        bm25_retriever = pickle.load(f)
-    bm25_retriever.k = BM25_TOP_K
+    bm25_retriever = download_bm25_from_gcs(BILLING_NAMESPACE)
 
     # ── Ensemble retriever ─────────────────────────────
     retriever = EnsembleRetriever(
@@ -78,7 +77,7 @@ def build_billing_agent():
         ("human", "{question}"),
     ])
 
-    # ── Format docs ────────────────────────────────────
+    # ── Format docs ───────────────────────converting it from a document structure to a string that can be fed into the prompt
     def format_docs(docs):
         return "\n\n".join(
             f"[{doc.metadata.get('Header2', 'General')}]\n{doc.page_content}"
@@ -119,7 +118,7 @@ def build_billing_agent():
         | StrOutputParser()
     )
 
-    print(f"✅ Billing agent ready — collection: {BILLING_COLLECTION}")
+    print(f"✅ Billing agent ready — collection: {BILLING_NAMESPACE}")
     return agent_chain
 
 
